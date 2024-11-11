@@ -27,7 +27,7 @@ class LongTermMemory(Base):
     significance_score = Column(Float, nullable=False)
     created_at = Column(DateTime(timezone=True), server_default=func.now())
 
-def create_embedding(text: str, openai_api_key: str) -> List[float]:
+def create_embedding(text: str, client) -> List[float]:
     """
     Create an embedding for the given text using OpenAI's API.
     
@@ -38,7 +38,6 @@ def create_embedding(text: str, openai_api_key: str) -> List[float]:
     Returns:
         List[float]: Embedding vector
     """
-    client = OpenAI(api_key=openai_api_key)
     response = client.embeddings.create(
         input=text,
         model="text-embedding-3-small"

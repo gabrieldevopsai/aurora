@@ -5,10 +5,12 @@ sqlalchemy==2.0.31
 pydantic==2.8.2
 requests==2.31.0
 solana==0.35.0
-solders==0.22.0
+twitter-api-client==0.10.22
+solders
 openai
 python-dotenv
 numpy
 tweepy
 eth_keys
 web3
+base58

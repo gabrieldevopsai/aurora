@@ -11,7 +11,7 @@ class User(Base):
 
     id = Column(Integer, primary_key=True, index=True)
     username = Column(String, unique=True, index=True)
-    email = Column(String, index=True, default="Flip_Flop_Frogg@example.com")
+    email = Column(String, index=True, default="aurora_terminal@example.com")
     created_at = Column(DateTime(timezone=True), server_default=func.now())
     updated_at = Column(DateTime(timezone=True), onupdate=func.now())
 
@@ -32,7 +32,8 @@ class Post(Base):
     comment_count = Column(Integer, default=0)
     image_path = Column(String)
     tweet_id = Column(String, default=0)
-
+    parent_id = Column(Integer, ForeignKey("posts.id"), nullable=True)  # Novo campo
+    parent = relationship("Post", remote_side=[id], backref="replies")
     user = relationship("User", back_populates="posts")
     comments = relationship("Comment", back_populates="post")
     likes = relationship("Like", back_populates="post")

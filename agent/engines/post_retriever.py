@@ -6,6 +6,9 @@ from sqlalchemy.orm import class_mapper
 from twitter.account import Account
 from twitter.scraper import Scraper
 from engines.json_formatter import process_twitter_json
+import logging
+logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
+logger = logging.getLogger(__name__)
 
 def sqlalchemy_obj_to_dict(obj):
     """Convert a SQLAlchemy object to a dictionary."""
@@ -262,7 +265,6 @@ def find_all_conversations(data):
 
 
 def get_timeline(account: Account) -> List[str]:
-    """Get timeline using the new Account-based approach."""
     timeline = account.home_latest_timeline(20)
 
     if 'errors' in timeline[0]:
@@ -271,9 +273,10 @@ def get_timeline(account: Account) -> List[str]:
     tweets_info = parse_tweet_data(timeline[0])
     filtered_timeline = []
     for t in tweets_info:
-        timeline_tweet_text = f'New post on my timeline from @{t["Author Information"]["username"]}: {t["Tweet Information"]["text"]}\n'
-        filtered_timeline.append((timeline_tweet_text, t["Tweet ID"]))
-        # print(f'Tweet ID: {t["Tweet ID"]}, on my timeline: {t["Author Information"]["username"]} said {t["Tweet Information"]["text"]}\n')
+        author_username = t["Author Information"]["username"]
+        if author_username in {"AndyAyrey", "truth_terminal", "gabrieldevopsai", "elonmusk", "missoralways", 'sama'}:
+            timeline_tweet_text = f'New post on my timeline from @{author_username}: {t["Tweet Information"]["text"]}\n'
+            filtered_timeline.append((timeline_tweet_text, t["Tweet ID"]))
     return filtered_timeline
 
 
@@ -290,4 +293,113 @@ def fetch_notification_context(account: Account) -> str:
     print(f"getting reply trees")
     context.extend(find_all_conversations(notifications))
 
+    # logger.info(f"CONTEXT: {context}")
+    # logger.info(f"NOTIFICATIONS: {notifications}")
     return context
+
+def get_user_id(auth, username):
+    """
+    Get the user ID for a given username using the Twitter API.
+    
+    Args:
+        auth: Authentication object (e.g., OAuth1).
+        username (str): The Twitter username.
+        
+    Returns:
+        str: The user ID if found; None otherwise.
+    """
+    url = f'https://api.twitter.com/2/users/by/username/{username}'
+    response = requests.get(url, auth=auth)
+    if response.status_code == 200:
+        data = response.json()
+        return data['data']['id']
+    else:
+        logger.error(f'Error retrieving user ID for {username}: {response.text}')
+        return None
+
+def fetch_tweets_from_users(auth, users_list):
+    """
+    Fetch recent tweets from a list of users using the Twitter API.
+    
+    Args:
+        auth: Authentication object (e.g., OAuth1).
+        users_list (List[str]): List of Twitter usernames.
+        
+    Returns:
+        List[Dict]: List of tweet dictionaries.
+    """
+    tweets = []
+    for username in users_list:
+        user_id = get_user_id(auth, username)
+        if not user_id:
+            logger.error(f"Could not retrieve user ID for {username}. Skipping.")
+            continue
+        try:
+            url = f'https://api.twitter.com/2/users/{user_id}/tweets'
+            params = {
+                'max_results': 5,  # Adjust as needed
+                'tweet.fields': 'id,text,author_id,created_at,conversation_id',
+                'expansions': 'author_id',
+                'user.fields': 'id,username,name',
+                'exclude': 'retweets,replies'  # Exclude retweets and replies if desired
+            }
+            response = requests.get(url, params=params, auth=auth)
+            if response.status_code == 200:
+                data = response.json()
+                if 'data' in data:
+                    tweets_data = data['data']
+                    includes = data.get('includes', {})
+                    users = {u['id']: u for u in includes.get('users', [])}
+                    for tweet in tweets_data:
+                        author_id = tweet.get('author_id')
+                        author_info = users.get(author_id, {})
+                        tweet['author'] = author_info
+                        tweets.append(tweet)
+                else:
+                    logger.info(f"No tweets found for user {username}.")
+            else:
+                logger.error(f'Error retrieving tweets for user {username}: {response.text}')
+        except Exception as e:
+            logger.error(f"Error fetching tweets for user {username}: {e}")
+    return tweets
+
+def fetch_mentions(auth, user_id):
+    """
+    Fetch recent mentions of the authenticated user using the Twitter API.
+    
+    Args:
+        auth: Authentication object (e.g., OAuth1).
+        user_id (str): The user ID of the authenticated user.
+        
+    Returns:
+        List[Dict]: List of mention tweet dictionaries.
+    """
+    try:
+        url = f'https://api.twitter.com/2/users/{user_id}/mentions'
+        params = {
+            'max_results': 50,  # Adjust as needed
+            'tweet.fields': 'id,text,author_id,created_at,conversation_id,entities',
+            'expansions': 'author_id',
+            'user.fields': 'id,username,name'
+        }
+        response = requests.get(url, params=params, auth=auth)
+        if response.status_code == 200:
+            data = response.json()
+            if 'data' in data:
+                mentions_data = data['data']
+                includes = data.get('includes', {})
+                users = {u['id']: u for u in includes.get('users', [])}
+                for mention in mentions_data:
+                    author_id = mention.get('author_id')
+                    author_info = users.get(author_id, {})
+                    mention['author'] = author_info
+                return mentions_data
+            else:
+                logger.info("No mentions found.")
+                return []
+        else:
+            logger.error(f'Error retrieving mentions: {response.text}')
+            return []
+    except Exception as e:
+        logger.error(f"Error fetching mentions: {e}")
+        return []

@@ -21,7 +21,19 @@ from engines.wallet_send import transfer_sol, wallet_address_in_post, get_wallet
 from engines.follow_user import follow_by_username, decide_to_follow_users
 from models import Post, User, TweetPost
 from twitter.account import Account
+from engines.respond_notifications import respond_to_specific_timeline_tweets
+from engines.answer_specific_users import respond_to_specific_tweets
+import dotenv
+from openai import OpenAI
 
+dotenv.load_dotenv()
+
+from engines.post_sender import reply_post
+from engines.conversation_tweet import fetch_conversation_history, prepare_conversation_context, use_llm_for_conversation
+
+import logging
+logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
+logger = logging.getLogger(__name__)
 
 def run_pipeline(
     db: Session,
@@ -45,6 +57,31 @@ def run_pipeline(
         openrouter_api_key (str): API key for OpenRouter
         openai_api_key (str): API key for OpenAI
     """
+
+    client = OpenAI(api_key=openai_api_key)
+    try:
+        # try:
+
+        #     for tweet_text, tweet_id in fetch_notification_context(account):
+        #         # Carregar o histórico da conversa
+        #         conversation = fetch_conversation_history(tweet_id, db)
+        #         if conversation:
+        #             context = prepare_conversation_context(conversation)
+        #             response = use_llm_for_conversation(tweet_id, db, client)
+        #             # Este ponto do código enviaria o tweet com o conteúdo gerado
+        #             try:
+        #                 res = reply_post(account=account, content=response, tweet_id=tweet_id)
+        #                 logger.info(f"Respondido ao tweet {tweet_id} com: {response}")
+        #             except Exception as e:
+        #                 logger.error(f"Erro ao responder ao tweet {tweet_id}: {e}")
+        # except Exception as e:
+        #     logger.info(f"Except error when trying getting converrsation: {e}")
+
+        respond_to_specific_timeline_tweets(account, db, client, auth)
+    except Exception as e:
+        logger.error(f"Ocorreu um erro ao processar notificações: {e}")
+
+
     # Step 1: Retrieve recent posts
     recent_posts = retrieve_recent_posts(db)
     formatted_recent_posts = format_post_list(recent_posts)
@@ -61,16 +98,23 @@ def run_pipeline(
     existing_tweet_ids = {tweet.tweet_id for tweet in db.query(TweetPost.tweet_id).all()}
     filtered_notif_context_tuple = [context for context in notif_context_tuple if context[1] not in existing_tweet_ids]
 
+    # try:
+    #     logger.info("Answer unseen notifications...")
+    #     respond_to_specific_timeline_tweets(account, db, client, auth)
+    # except Exception as e:
+    #     logger.info(f"Error respond unseen notifications: {e}")
+
     # add to database every tweet id you have seen
     for id in notif_context_id:
         new_tweet_post = TweetPost(tweet_id=id)
         db.add(new_tweet_post)
         db.commit()
 
+
     # print(notif_context_id)
     notif_context = [context[0] for context in filtered_notif_context_tuple]
     # print(f"fetched context tweet ids: {new_ids}\n")
-    print("New Notifications:\n")
+    # print("New Notifications:\n")
     for notif in notif_context_tuple:
         print(f"- {notif[0]}, tweet at https://x.com/user/status/{notif[1]}\n")
     external_context = notif_context
@@ -156,43 +200,43 @@ def run_pipeline(
     short_term_memory = generate_short_term_memory(
         recent_posts, external_context, llm_api_key
     )
-    print(f"Short-term memory: {short_term_memory}")
+    logger.info(f"Short-term memory: {short_term_memory}")
 
     # Step 4: Create embedding for short-term memory
-    short_term_embedding = create_embedding(short_term_memory, openai_api_key)
+    short_term_embedding = create_embedding(short_term_memory, client)
 
     # Step 5: Retrieve relevant long-term memories
     long_term_memories = retrieve_relevant_memories(db, short_term_embedding)
-    print(f"Long-term memories: {long_term_memories}")
+    logger.info(f"Long-term memories: {long_term_memories}")
 
     # Step 6: Generate new post
     new_post_content = generate_post(short_term_memory, long_term_memories, formatted_recent_posts, external_context, llm_api_key)
     new_post_content = new_post_content.strip('"')
-    print(f"New post content: {new_post_content}")
+    logger.info(f"New post content: {new_post_content}")
 
     # Step 7: Score the significance of the new post
     significance_score = score_significance(new_post_content, llm_api_key)
-    print(f"Significance score: {significance_score}")
+    logger.info(f"Significance score: {significance_score}")
 
     # Step 8: Store the new post in long-term memory if significant enough
     if significance_score >= 7:
-        new_post_embedding = create_embedding(new_post_content, openai_api_key)
+        new_post_embedding = create_embedding(new_post_content, client)
         store_memory(db, new_post_content, new_post_embedding, significance_score)
 
     # Step 9: Save the new post to the database
-    ai_user = db.query(User).filter(User.username == "Flip_Flop_Frogg").first()
+    ai_user = db.query(User).filter(User.username == "aurora_terminal").first()
     if not ai_user:
-        ai_user = User(username="Flip_Flop_Frogg", email="Flip_Flop_Frogg@example.com")
+        ai_user = User(username="aurora_terminal", email="aurora_terminal@example.com")
         db.add(ai_user)
         db.commit()
 
     # THIS IS WHERE YOU WOULD INCLUDE THE POST_SENDER.PY FUNCTION TO SEND THE NEW POST TO TWITTER ETC
     if significance_score >= 3: # Only Bangers! lol
         res = send_post_API(auth, new_post_content)
-        print(f"Posted API with tweet_id: {res}")
+        logger.info(f"Posted API with tweet_id: {res}")
 
         if res is not None:
-            print(f"Posted with tweet_id: {res}")
+            logger.info(f"Posted with tweet_id: {res}")
             new_db_post = Post(
                 content=new_post_content,
                 user_id=ai_user.id,
@@ -225,3 +269,12 @@ def run_pipeline(
     print(
         f"New post generated with significance score {significance_score}: {new_post_content}"
     )
+
+    logger.info("Answering specific users")
+    try:
+        respond_to_specific_tweets(openai_key=openai_api_key, db=db, account=account, auth=auth, client=client)
+    except Exception as e:
+        logger.info(f"Ocorreu um erro ao tentar responder usuarios especificos: {e}")
+
+
+    

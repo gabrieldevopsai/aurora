@@ -15,16 +15,26 @@ import json
 from solders.keypair import Keypair
 from solders.pubkey import Pubkey
 import secrets
+import logging
+import base58
+from db.db_setup import engine
+from sqlalchemy import inspect, text
+
+logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
+logger = logging.getLogger(__name__)
 
 def generate_solana_account():
     """Generate a new Solana account with private key and address."""
     keypair = Keypair()
-    rawPK = bytes(keypair) 
-    private_key = base58.b58encode(rawPK).decode()
+    rawPK = bytes(keypair)  # rawPK é um objeto bytes
+    private_key = base58.b58encode(rawPK)  # Codifique para Base58
     public_key = keypair.pubkey()
     solana_address = str(public_key)
 
-    return private_key.hex(), solana_address
+    logger.info(f"Public Key: {public_key}")
+    logger.info(f"Solana Address: {solana_address}")
+
+    return private_key.decode(), solana_address
 
 def get_random_activation_time():
     """Returns a random time within the next 10 minutes"""
@@ -42,18 +52,18 @@ def get_next_run_time():
     """Returns a random time between 30 seconds and 3 minutes from now"""
     return datetime.now() + timedelta(seconds=random.uniform(30, 180))
 
-
 def main():
     load_dotenv()
 
     # Check if the database file exists
     if not os.path.exists("./data/agents.db"):
-        print("Creating database...")
+        logger.info("Creating database...")
         create_database()
-        print("Seeding database...")
+        logger.info("Seeding database...")
         seed_database()
     else:
-        print("Database already exists. Skipping creation and seeding.")
+        # upgrade_database()
+        logger.info("Database already exists. Skipping creation and seeding.")
 
     db = next(get_db())
 
@@ -65,7 +75,7 @@ def main():
     }
 
     # Accessing environment variables
-
+    
     x_consumer_key = os.environ.get("X_CONSUMER_KEY")
     x_consumer_secret = os.environ.get("X_CONSUMER_SECRET")
     x_access_token = os.environ.get("X_ACCESS_TOKEN")
@@ -77,20 +87,28 @@ def main():
     auth = OAuth1(x_consumer_key, x_consumer_secret, x_access_token, x_access_token_secret)
 
     # Generate Solana account
-    private_key_hex, eth_address = generate_solana_account()
-    print(f"generated agent exclusively-owned wallet: {eth_address}")
+    # private_key_hex, solana_address = generate_solana_account()
+
+    private_key_hex = os.environ.get("PK_WALLET")
+    eth_address = os.environ.get("WALLET_ADDY")
+    logger.info(f"generated agent exclusively-owned wallet: {eth_address}")
     
-    # Announce wallet address using new Account-based approach
-    tweet_id = send_post_API(auth, f'My wallet is {eth_address}')
-    print(f"Wallet announcement tweet: https://x.com/user/status/{tweet_id}")
+    # logger.info(f"Generated agent's wallet address: {solana_address}")
+    # logger.info(f"Generated agent's private key: {private_key_hex}")
+    # logger.info(f"Generated agent's private key: {private_key_hex}")
+    # logger.info(f"Generated agent's wallet address: {solana_address}")
+
+    # # Announce wallet address using new Account-based approach
+    # tweet_id = send_post_API(auth, f'My wallet is {solana_address}')
+    # logger.info(f"Wallet announcement tweet: https://x.com/user/status/{tweet_id}")
     # try:
     #     rest_id = tweet_id['data']['create_tweet']['tweet_results']['result']['rest_id']
-    #     print(f"Wallet announcement tweet: https://x.com/user/status/{rest_id}")
+    #     logger.info(f"Wallet announcement tweet: https://x.com/user/status/{rest_id}")
     # except KeyError:
-    #     print(f"Couldn't tweet wallet announcement: {tweet_id}")
+    #     logger.info(f"Couldn't tweet wallet announcement: {tweet_id}")
 
     # Do initial run on start
-    print("\nPerforming initial pipeline run...")
+    logger.info("\nPerforming initial pipeline run...")
     try:
         run_pipeline(
             db,
@@ -100,11 +118,11 @@ def main():
             solana_mainnet_rpc_url,
             **api_keys,
         )
-        print("Initial run completed successfully.")
+        logger.info("Initial run completed successfully.")
     except Exception as e:
-        print(f"Error during initial run: {e}")
+        logger.info(f"Error during initial run: {e}")
 
-    print("Starting continuous pipeline process...")
+    logger.info("Starting continuous pipeline process...")
 
     while True:
         try:
@@ -113,17 +131,17 @@ def main():
             active_duration = get_random_duration()
             deactivation_time = activation_time + active_duration
 
-            print(f"\nNext cycle:")
-            print(f"Activation time: {activation_time.strftime('%I:%M:%S %p')}")
-            print(f"Deactivation time: {deactivation_time.strftime('%I:%M:%S %p')}")
-            print(f"Duration: {active_duration.total_seconds() / 60:.1f} minutes")
+            logger.info(f"\nNext cycle:")
+            logger.info(f"Activation time: {activation_time.strftime('%I:%M:%S %p')}")
+            logger.info(f"Deactivation time: {deactivation_time.strftime('%I:%M:%S %p')}")
+            logger.info(f"Duration: {active_duration.total_seconds() / 60:.1f} minutes")
 
             # Wait until activation time
             while datetime.now() < activation_time:
                 time.sleep(60)  # Check every minute
 
             # Pipeline is now active
-            print(f"\nPipeline activated at: {datetime.now().strftime('%H:%M:%S')}")
+            logger.info(f"\nPipeline activated at: {datetime.now().strftime('%H:%M:%S')}")
 
             # Schedule first run
             next_run = get_next_run_time()
@@ -131,7 +149,7 @@ def main():
             # Run pipeline at random intervals until deactivation time
             while datetime.now() < deactivation_time:
                 if datetime.now() >= next_run:
-                    print(f"Running pipeline at: {datetime.now().strftime('%H:%M:%S')}")
+                    logger.info(f"Running pipeline at: {datetime.now().strftime('%H:%M:%S')}")
                     try:
                         run_pipeline(
                             db,
@@ -142,11 +160,11 @@ def main():
                             **api_keys,
                         )
                     except Exception as e:
-                        print(f"Error running pipeline: {e}")
+                        logger.info(f"Error running pipeline: {e}")
 
                     # Schedule next run
                     next_run = get_next_run_time()
-                    print(
+                    logger.info(
                         f"Next run scheduled for: {next_run.strftime('%H:%M:%S')} "
                         f"({(next_run - datetime.now()).total_seconds():.1f} seconds from now)"
                     )
@@ -154,9 +172,9 @@ def main():
                 # Short sleep to prevent CPU spinning
                 time.sleep(1)
 
-            print(f"Pipeline deactivated at: {datetime.now().strftime('%H:%M:%S')}")
+            logger.info(f"Pipeline deactivated at: {datetime.now().strftime('%H:%M:%S')}")
         except Exception as e:
-            print(f"Error in pipeline: {e}")
+            logger.info(f"Error in pipeline: {e}")
             continue
 
 
@@ -164,4 +182,4 @@ if __name__ == "__main__":
     try:
         main()
     except KeyboardInterrupt:
-        print("\nProcess terminated by user")
+        logger.info("\nProcess terminated by user")

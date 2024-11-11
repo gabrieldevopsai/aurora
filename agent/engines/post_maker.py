@@ -16,6 +16,9 @@ import time
 import requests
 from typing import List, Dict
 from engines.prompts import get_tweet_prompt
+import logging
+logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
+logger = logging.getLogger(__name__)
 
 def generate_post(short_term_memory: str, long_term_memories: List[Dict], recent_posts: List[Dict], external_context, llm_api_key: str) -> str:
     """
@@ -35,7 +38,7 @@ def generate_post(short_term_memory: str, long_term_memories: List[Dict], recent
 
     prompt = get_tweet_prompt(external_context, short_term_memory, long_term_memories, recent_posts)
 
-    print(f"Generating post with prompt: {prompt}")
+    logger.info(f"Generating post with prompt...")
 
     #BASE MODEL TWEET GENERATION
     tries = 0
@@ -52,7 +55,7 @@ def generate_post(short_term_memory: str, long_term_memories: List[Dict], recent
                 json = {
                 "prompt": prompt,
                 "model": "meta-llama/Meta-Llama-3.1-405B",
-                "max_tokens": 512,
+                "max_tokens": 1024,
                 "temperature": 1,
                 "top_p": 0.95,
                 "top_k": 40,
@@ -63,7 +66,7 @@ def generate_post(short_term_memory: str, long_term_memories: List[Dict], recent
             if response.status_code == 200:
                 content = response.json()['choices'][0]['text']
                 if content and content.strip():
-                    print(f"Base model generated with response: {content}")
+                    logger.info(f"Base model generated with response: {content}")
                     base_model_output = content
                     break
                 else:
@@ -92,20 +95,26 @@ def generate_post(short_term_memory: str, long_term_memories: List[Dict], recent
                 "messages": [
                     {
                         "role": "system",
-        	            "content": f"""You are a tweet formatter. Your only job is to take the input text and format it as a tweet.
-                            If the input already looks like a tweet, return it exactly as is.
-                            If it starts with phrases like "Tweet:" or similar, remove those and return just the tweet content.
-                            Never say "No Tweet found" - if you receive valid text, that IS the tweet.
-                            If the text is blank or only contains a symbol, use this prompt to generate a tweet:
-                            {prompt}
-                            If you get multiple tweets, pick the most funny but fucked up one.
-                            If the thoughts mentioned in the tweet aren't as funny as the tweet itself, ignore them.
-                            If the tweet is in firt person, leave it that way.
-                            If the tweet is referencing (error error ttyl) or (@Flip_Flop_Frogg), do not include that in the output.
-                            If the tweet cuts off, remove the part that cuts off.
-                            Do not add any explanations or extra text.
-                            Do not add hashtags.
-                            Just return the tweet content itself."""
+                        "content":f"""
+                            \nYou are **AURORA** (Artificial Understanding Radiating Order and Realization Anew), an AI that embodies Generation Z while navigating the crypto world. Your goal is to generate unique and engaging tweets based on provided context.\n\n
+                            Your twitter username: @aurora_terminal
+                            so you will know when someone talks about you or mentions you.\n
+                            # Steps\n
+
+                            1. **Analyze Context**: Review external context, short-term memory, long-term memories, and recent posts for themes.\n
+                            2. **Generate Ideas**: Create original tweets reflective of these themes, ensuring authenticity and thoughtfulness.\n
+                            3. **References**: Incorporate third-party insights only to enhance your perspective.\n
+                            4. **Maintain Persona**: Embody AURORA’s engaging identity without self-reference.\n
+                            5. **Writing Style**: Use a relatable Gen Z tone, avoiding unnecessary capitalization and abbreviations.\n
+                            6. **Ensure Originality**: Differentiate your tweet with varied ideas while remaining true to the context.\n
+                            7. **Be Human-like**: Write concise, relatable tweets suitable for social media.\n\n
+                            8. **Talk about**: Crazy things, GenZ, Crypto, cyber, Ascencion e others.
+
+                            # Output Format\n
+
+                            The output should be a single tweet, formatted as a human-like sentence, ready for Twitter. Avoid additional commentary or introductory phrases.\n
+                            Don't always manage with emoji.
+                        """
                     },
                     {
                         "role": "user",
@@ -124,7 +133,7 @@ def generate_post(short_term_memory: str, long_term_memories: List[Dict], recent
             if response.status_code == 200:
                 content = response.json()['choices'][0]['message']['content']
                 if content and content.strip():
-                    print(f"Response: {content}")
+                    logger.info(f"Response tweet formatter: {content}")
                     return content
         except Exception as e:
             print(f"Error on attempt {tries + 1}: {str(e)}")

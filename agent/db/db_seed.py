@@ -9,6 +9,7 @@ from db.db_setup import SessionLocal, engine
 from openai import OpenAI
 from dotenv import load_dotenv
 
+
 load_dotenv()
 
 def load_example_content(filename="examples.txt"):
@@ -50,7 +51,7 @@ def seed_database():
     print(f"Existing users: {existing_users}")
     if not existing_users:
         users = [
-            User(username=f"Flip_Flop_Frogg", email=f"Flip_Flop_Frogg@example.com")
+            User(username=f"aurora_terminal", email=f"aurora_terminal@example.com")
         ]
         db.add_all(users)
         db.commit()
